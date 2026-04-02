@@ -6,7 +6,7 @@ Usage:
     uvicorn api:app --reload
 
 POST /predict
-    Body: { "language": 2, "domain": 1, "topic": 3, "urgency": 2, "literacy": 0 }
+    Body: { "language": 2, "domain": 1, "topic": 3, "literacy": 0 }
     Returns: { "action": 1, "action_name": "Voice Note", "description": "..." }
 """
 
@@ -16,7 +16,6 @@ from pydantic import BaseModel, Field
 import numpy as np
 import os
 
-# ── Load model ────────────────────────────────────────────────────────────────
 from stable_baselines3 import PPO
 
 MODEL_PATH = os.path.join("models", "pg", "ppo", "best_ppo_model.zip")
@@ -27,7 +26,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Allow all origins so frontend_demo.html can call this from the browser
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,7 +33,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load model once at startup
 model = None
 
 @app.on_event("startup")
@@ -87,8 +84,8 @@ class UserContext(BaseModel):
     language: int = Field(..., ge=0, le=2, description="0=English, 1=Yoruba, 2=Pidgin")
     domain:   int = Field(..., ge=0, le=1, description="0=Sexual Health, 1=Maternal Health")
     topic:    int = Field(..., ge=0, le=8, description="0-8, see TOPICS mapping")
-    urgency:  int = Field(..., ge=0, le=2, description="0=Low, 1=Medium, 2=High")
     literacy: int = Field(..., ge=0, le=2, description="0=Low, 1=Medium, 2=High")
+    # FIX: removed urgency — not part of the observation space
 
 class PredictionResponse(BaseModel):
     action:       int
@@ -120,14 +117,14 @@ def predict(context: UserContext):
     if model is None:
         return {"error": "Model not loaded. Check server logs."}
 
-    # Build observation vector: [language, domain, topic, urgency, literacy, step=0]
+    # FIX: observation matches environment exactly — [language, domain, topic, literacy, step]
     obs = np.array([
-    context.language,
-    context.domain,
-    context.topic,
-    context.literacy,
-    0  # step
-], dtype=np.float32)
+        context.language,
+        context.domain,
+        context.topic,
+        context.literacy,
+        0  # step — always 0 at session start
+    ], dtype=np.float32)
 
     action, _ = model.predict(obs, deterministic=True)
     action = int(action)
@@ -141,7 +138,6 @@ def predict(context: UserContext):
             "language": LANGUAGES[context.language],
             "domain":   DOMAINS[context.domain],
             "topic":    TOPICS[context.topic],
-            "urgency":  LITERACY[context.urgency],
             "literacy": LITERACY[context.literacy],
         },
         model_used="PPO — best_ppo_model.zip (Run 1, Mean Reward 114.33)"
